@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Hazari Scoreboard PWA 8.5</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--text:#fff;--accent:#38bdf8}
+.light{--bg:#f8fafc;--card:#fff;--text:#111827;--accent:#0284c7}
+body{background:var(--bg);color:var(--text);font-family:Arial,sans-serif;padding:10px;max-width:1000px;margin:auto}
+h2{margin:8px 0;font-size:21px}
+.card{background:var(--card);padding:12px;border-radius:16px;margin:8px 0;box-shadow:0 4px 12px rgba(0,0,0,.22)}
+input,select,button{padding:7px;margin:3px;border-radius:8px;border:none}
+.actionRow{display:flex;gap:4px;flex-wrap:nowrap;margin-top:8px;width:100%}
+.actionRow button{flex:1 1 0;min-width:0;padding:9px 2px;margin:0;font-size:17px}
+.toast-container{position:fixed;top:12px;left:0;right:0;display:flex;flex-direction:column;align-items:center;gap:8px;z-index:10000;pointer-events:none;padding:0 10px}
+.toast{background:#1f2937;color:#fff;padding:10px 18px;border-radius:999px;font-weight:bold;font-size:14px;box-shadow:0 4px 14px rgba(0,0,0,.45);opacity:0;transform:translateY(-12px);animation:toastIn .3s ease forwards,toastOut .3s ease forwards 2.7s;max-width:92%;text-align:center}
+@keyframes toastIn{to{opacity:1;transform:translateY(0)}}
+@keyframes toastOut{to{opacity:0;transform:translateY(-12px)}}
+button{background:var(--accent);font-weight:bold;padding:9px 12px;border-radius:10px}
+.avatar{width:36px;height:36px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:var(--accent);margin-right:6px;font-weight:bold}
+table{width:100%;border-collapse:collapse}
+th,td{padding:7px;border-bottom:1px solid #334155}
+.statsgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:6px;margin:8px 0}
+.statcard{background:var(--card);padding:8px;border-radius:12px;text-align:center;font-weight:bold;font-size:13px}
+.rank1{font-weight:bold}
+progress{height:14px;border-radius:10px}
+
+#playerCustomBtn,#settingsBtn{display:none!important;}
+.history-content{display:none;}
+
+.player-row{display:flex;align-items:center;gap:8px;margin:5px 0}
+.player-label{width:110px;text-align:right;display:inline-block;font-weight:600}
+.last-round-item{display:flex;justify-content:space-between;align-items:center;padding:3px 0}
+.last-round-name{display:inline-block;width:110px}
+.last-round-score{font-weight:bold;text-align:right;min-width:50px}
+
+.player-row{display:flex;align-items:center;gap:8px;margin:5px 0}
+.player-row .name-col{width:110px;min-width:80px;text-align:right}
+.player-row input{flex:1}
+.last-round-item{display:flex;align-items:center}
+.last-round-name{width:160px;display:inline-block}
+
+
+
+.player-entry{display:flex;align-items:center;justify-content:space-between;margin:5px 0}
+.player-entry .pname{display:inline-block}
+.player-entry input{width:80px;text-align:center}
+.lr-row{display:flex;justify-content:space-between;gap:10px;padding:2px 0}
+.lr-left{display:inline-block;width:200px}
+
+</style>
+
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0f172a">
+<script>
+let deferredPrompt;
+window.addEventListener('beforeinstallprompt',(e)=>{
+ e.preventDefault();
+ deferredPrompt=e;
+ const b=document.getElementById('installBtn');
+ if(b) b.style.display='inline-block';
+});
+async function installPWA(){
+ if(!deferredPrompt) return;
+ deferredPrompt.prompt();
+ await deferredPrompt.userChoice;
+}
+if('serviceWorker' in navigator){
+ window.addEventListener('load',()=>navigator.serviceWorker.register('./service-worker.js'));
+}
+</script>
+
+
+<script>
+let roundLocked = JSON.parse(localStorage.getItem('roundLocked')||'false');
+let playerEmojis = JSON.parse(localStorage.getItem('playerEmojis')||'{}');
+let playerColors = JSON.parse(localStorage.getItem('playerColors')||'{}');
+
+function toggleRoundLock(){
+ roundLocked=!roundLocked;
+ localStorage.setItem('roundLocked',JSON.stringify(roundLocked));
+ showToast(roundLocked?'রাউন্ড লক করা হয়েছে':'রাউন্ড লক খোলা হয়েছে', roundLocked?'🔒':'🔓');
+ updateLockButton();
+}
+
+function updateLockButton(){
+ let btn=document.getElementById('lockBtn');
+ if(!btn) return;
+ btn.textContent = roundLocked?'🔒':'🔓';
+ btn.style.background = roundLocked?'#ef4444':'';
+}
+</script>
+
+
+<script>
+const avatarOptions=['😀','😎','🦁','🐯','🦅','👑','⚡','🔥'];
+const colorOptions=['Blue','Red','Green','Purple','Orange','Pink','Teal','Gold'];
+</script>
+
+
+<script>
+const DEFAULT_EMOJIS=['😀','😎','🦁','🐯','🦅','👑','⚡','🔥'];
+
+function colorHex(name){
+ const map={Blue:'#3b82f6',Red:'#ef4444',Green:'#22c55e',Purple:'#a855f7',Orange:'#f97316',Pink:'#ec4899',Teal:'#14b8a6',Gold:'#eab308',Brown:'#92400e',Black:'#111827'};
+ return map[name]||'#3b82f6';
+}
+
+function selectColor(i,c){
+ let inp=document.getElementById('cl'+i);
+ if(inp) inp.value=c;
+ document.querySelectorAll('.colorSwatch[data-player="'+i+'"]').forEach(el=>{
+  el.style.border = el.getAttribute('data-color')===c ? '2px solid #fff' : '2px solid transparent';
+ });
+ let prev=document.getElementById('clPreview'+i);
+ if(prev) prev.style.background=colorHex(c);
+ let picker=document.getElementById('clPicker'+i);
+ if(picker) picker.style.display='none';
+}
+
+function toggleColorPicker(i){
+ let picker=document.getElementById('clPicker'+i);
+ if(!picker) return;
+ let isOpen=picker.style.display==='flex';
+ document.querySelectorAll('[id^="clPicker"]').forEach(el=>el.style.display='none');
+ picker.style.display=isOpen?'none':'flex';
+}
+const DEFAULT_COLORS=['Blue','Red','Green','Purple','Orange','Pink','Teal','Gold'];
+</script>
+
+</head>
+<body>
+
+<div id="splashScreen" style="position:fixed;inset:0;z-index:99999;display:flex;flex-direction:column;align-items:center;justify-content:center;overflow:hidden;background:radial-gradient(circle at 50% 15%,#24334d 0%,#131c2e 40%,#060a13 85%);transition:opacity .5s ease;">
+ <div style="position:absolute;top:-10%;left:-20%;width:140%;height:50%;background:radial-gradient(ellipse at center, rgba(255,255,255,.10), rgba(255,255,255,0) 65%);pointer-events:none"></div>
+ <div style="font-size:80px;line-height:1;font-family:'Noto Color Emoji',sans-serif;filter:drop-shadow(0 6px 10px rgba(0,0,0,.6))">👑</div>
+ <div style="font-size:64px;font-weight:900;line-height:1;margin-top:8px;font-family:Georgia,'Times New Roman',serif;background:linear-gradient(180deg,#fffef2 0%,#ffe28a 22%,#f5b83d 42%,#b8720f 68%,#fcd875 88%,#8a560a 100%);-webkit-background-clip:text;background-clip:text;color:transparent;letter-spacing:2px;filter:drop-shadow(0 3px 0 rgba(0,0,0,.4))">HAZARI</div>
+ <div style="font-size:20px;color:#cbd5e1;letter-spacing:8px;margin-top:4px;font-family:Arial,sans-serif">SCOREBOARD</div>
+ <div style="width:180px;height:3px;margin-top:18px;background:linear-gradient(90deg, rgba(251,191,36,0), #fbbf24 25%, #fff6d5 50%, #fbbf24 75%, rgba(251,191,36,0))"></div>
+ <div style="position:relative;width:180px;height:62px;margin-top:22px">
+  <div id="splashRow1" style="position:absolute;top:0;left:0;display:flex;gap:8px;opacity:0;animation:splashRow1 1.3s ease forwards;animation-delay:.2s">
+   <div style="width:44px;height:62px;background:linear-gradient(160deg,#fffdf3,#eddba0);border:2px solid #8a5f16;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;font-weight:bold;font-size:20px;color:#111;transform:rotate(-10deg)">A♠</div>
+   <div style="width:44px;height:62px;background:linear-gradient(160deg,#fffdf3,#eddba0);border:2px solid #8a5f16;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;font-weight:bold;font-size:20px;color:#b91c1c">A♥</div>
+   <div style="width:44px;height:62px;background:linear-gradient(160deg,#fffdf3,#eddba0);border:2px solid #8a5f16;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;font-weight:bold;font-size:20px;color:#b91c1c;transform:rotate(10deg)">A♦</div>
+  </div>
+  <div id="splashRow2" style="position:absolute;top:0;left:0;display:flex;gap:8px;opacity:0;animation:splashCardIn .5s ease forwards;animation-delay:1.5s">
+   <div style="width:44px;height:62px;background:linear-gradient(160deg,#fffdf3,#eddba0);border:2px solid #8a5f16;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;font-weight:bold;font-size:20px;color:#b91c1c;transform:rotate(-10deg)">A♥</div>
+   <div style="width:44px;height:62px;background:linear-gradient(160deg,#fffdf3,#eddba0);border:2px solid #8a5f16;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;font-weight:bold;font-size:20px;color:#b91c1c">K♥</div>
+   <div style="width:44px;height:62px;background:linear-gradient(160deg,#fffdf3,#eddba0);border:2px solid #8a5f16;border-radius:7px;display:flex;align-items:center;justify-content:center;font-family:Georgia,serif;font-weight:bold;font-size:20px;color:#b91c1c;transform:rotate(10deg)">Q♥</div>
+  </div>
+ </div>
+ <div style="margin-top:26px;font-family:Arial,sans-serif;color:#94a3b8;font-size:15px;letter-spacing:3px">LOADING<span id="splashDots"></span></div>
+</div>
+<style>
+@keyframes splashCardIn{
+  0%{opacity:0;transform:translateY(14px) scale(.92)}
+  100%{opacity:1;transform:translateY(0) scale(1)}
+}
+@keyframes splashRow1{
+  0%{opacity:0;transform:translateY(14px) scale(.92)}
+  20%{opacity:1;transform:translateY(0) scale(1)}
+  60%{opacity:1;transform:translateY(0) scale(1)}
+  100%{opacity:0;transform:translateY(-12px) scale(.94)}
+}
+</style>
+<script>
+
+ (function(){
+   let dots=0;
+   let dotTimer=setInterval(()=>{
+     dots=(dots+1)%4;
+     let el=document.getElementById('splashDots');
+     if(el) el.textContent='.'.repeat(dots);
+   },350);
+   window.addEventListener('load',()=>{
+     setTimeout(()=>{
+       clearInterval(dotTimer);
+       let s=document.getElementById('splashScreen');
+       if(!s) return;
+       s.style.opacity='0';
+       setTimeout(()=>{ s.style.display='none'; }, 500);
+     }, 2400);
+   });
+ })();
+</script>
+
+<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+<h2 style="margin:6px 0">🏆 Hazari Scoreboard</h2>
+<button onclick="document.body.classList.toggle('light')" style="padding:6px 10px;font-size:14px">🌙/☀️</button>
+</div>
+<h2 style='display:none'></h2>
+<button id="installBtn" onclick="installPWA()" style="display:none">📱 Install App</button>
+
+
+<div class="card" style="display:flex;align-items:center;gap:4px;flex-wrap:nowrap;padding:12px;font-size:14px">
+<span style="white-space:nowrap;flex:0 0 auto">Players:</span>
+<select id="pc" style="flex:0 0 auto;width:46px;min-width:0;margin:0;padding:4px 2px;font-size:14px"><option selected>4</option><option>5</option><option>6</option><option>7</option><option>8</option></select>
+<span style="white-space:nowrap;flex:0 0 auto">Target:</span>
+<select id="target" style="flex:1 1 0;width:0;min-width:56px;margin:0;padding:6px 4px;font-size:14px">
+<option value="1000" selected>1000</option>
+<option value="1100">1100</option>
+<option value="1200">1200</option>
+<option value="1300">1300</option>
+<option value="1400">1400</option>
+<option value="1500">1500</option>
+</select>
+<button onclick="setup()" style="flex:0 0 auto;white-space:nowrap;margin:0;padding:8px 10px;font-size:14px">Create</button>
+</div>
+</div>
+
+<div id="app"></div>
+
+<script>
+let historyVisible=false; let gameStoryVisible=false;
+let totals=[],names=[],history=[],roundNo=0; let winnerShown=false; let editingRoundIndex=null;
+let presetPlayers=JSON.parse(localStorage.getItem('hazariPresetPlayers')||'["রনি","বক্কর","হাসান","স্বাধীন","তারেক","পারভেজ","মুসা","তুহিন"]');
+
+
+document.addEventListener('change',function(e){
+ if(e.target.id && e.target.id.startsWith('n')){
+   let i=e.target.id.substring(1);
+   let c=document.getElementById('c'+i);
+   if(c) c.style.display = e.target.value==='' ? 'inline-block':'none';
+ }
+});
+
+function save(){localStorage.hazari=JSON.stringify({totals,names,history,roundNo,target:target.value});}
+
+function setup(){
+ let n=+pc.value;
+ totals=new Array(n).fill(0); history=[]; winnerShown=false; tieAnnounced=false; lastAnnouncedLeader=null;
+ let h='<div class="card">';
+ 
+for(let i=0;i<n;i++){
+ let colorList=['Blue','Red','Green','Purple','Orange','Pink','Teal','Gold','Brown','Black'];
+ let defColor=colorList[i%colorList.length];
+ h+=`<div style="margin:8px 0">`;
+ h+=`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select class="nameSel" id="n${i}" style="font-size:12px;max-width:90px;flex:0 0 auto">
+ <option value="">✏️ Custom Name...</option>
+ <option>রনি</option><option>বক্কর</option><option>হাসান</option>
+ <option>স্বাধীন</option><option>তারেক</option><option>পারভেজ</option>
+ <option>মুসা</option><option>তুহিন</option>
+ </select> <select id="a${i}" style="font-size:12px;flex:0 0 auto">${DEFAULT_EMOJIS.map((e,x)=>`<option ${x===i?'selected':''}>${e}</option>`).join('')}</select> <span onclick="toggleColorPicker(${i})" style="display:inline-flex;align-items:center;gap:5px;background:#fff;color:#111827;border-radius:8px;padding:6px 8px;font-size:12px;cursor:pointer;flex:0 0 auto"><span id="clPreview${i}" style="width:16px;height:16px;border-radius:50%;background:${colorHex(defColor)};display:inline-block"></span>Color ▾</span> <input id="c${i}" placeholder="Custom" style="display:none;max-width:90px"></div>`;
+ h+=`<input type="hidden" id="cl${i}" value="${defColor}">`;
+ h+=`<div id="clPicker${i}" style="display:none;gap:6px;flex-wrap:wrap;margin-top:6px">${colorList.map(c=>`<span class="colorSwatch" data-player="${i}" data-color="${c}" onclick="selectColor(${i},'${c}')" style="width:22px;height:22px;border-radius:50%;background:${colorHex(c)};display:inline-block;cursor:pointer;border:2px solid ${c===defColor?'#fff':'transparent'}"></span>`).join('')}</div>`;
+ h+=`</div>`;
+}
+
+ h+='<button onclick="startGame()">Start</button></div>';
+ app.innerHTML=h;
+}
+
+function startGame(){
+ names=[];
+ let h='<div class="card"><b>Round Total: '+(totals.length*90)+'</b><br>';
+ h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;margin-top:6px">';
+ for(let i=0;i<totals.length;i++){
+  let sel=document.getElementById('n'+i).value;
+let nm=sel || document.getElementById('c'+i).value || ('Player '+(i+1));
+names.push(nm); presetPlayers[i]=nm;
+playerEmojis[i+1]=document.getElementById('a'+i)?.value||'😀';
+playerColors[i+1]=document.getElementById('cl'+i)?.value||'Blue';
+localStorage.setItem('playerEmojis',JSON.stringify(playerEmojis));
+localStorage.setItem('playerColors',JSON.stringify(playerColors));
+  h+=`<div class="player-entry"><span class="pname">${names[i]}</span><input type=number inputmode="numeric" pattern="[0-9]*" id=s${i} value="" onkeydown="handleScoreKey(event,${i})"></div>`;
+ }
+ h+='</div>';
+ h+='<div class="actionRow"><button title="Add Round" onclick="addRound()">➕</button><button title="Undo" onclick="undo()">↩️</button><button id="lockBtn" title="Round Lock" onclick="toggleRoundLock()">🔒</button><button title="Game Story" onclick="toggleGameStory()">📜</button><button title="History" onclick="toggleHistory()">📖</button></div><div id=board></div></div>';
+ localStorage.setItem('hazariPresetPlayers',JSON.stringify(presetPlayers)); app.innerHTML=h; render(); updateLockButton();
+}
+
+let lastAnnouncedLeader=null;
+let tieAnnounced=false;
+
+function setTargetValue(v){
+ let t=document.getElementById('target');
+ if(!t) return;
+ if(t.tagName==='SELECT'){
+   let opt=Array.from(t.options).find(o=>+o.value===+v);
+   if(!opt){
+     opt=document.createElement('option');
+     opt.value=v; opt.textContent=v;
+     t.appendChild(opt);
+   }
+ }
+ t.value=v;
+}
+
+function extendTarget(){
+ let input=document.getElementById('newTarget');
+ let errEl=document.getElementById('tieErr');
+ if(!input) return;
+ let v=+input.value;
+ let currentMax=totals.length?Math.max(...totals):0;
+ if(!v || v<=currentMax){
+   if(errEl) errEl.textContent='নতুন টার্গেট বর্তমান সর্বোচ্চ স্কোর ('+currentMax+') এর চেয়ে বেশি হতে হবে।';
+   return;
+ }
+ setTargetValue(v);
+ tieAnnounced=false;
+ winnerShown=false;
+ showToast('নতুন টার্গেট: '+v+' পয়েন্ট!','🎯');
+ speak('নতুন টার্গেট সেট হয়েছে '+v+' পয়েন্ট। খেলা চলবে!');
+ save();
+ render();
+}
+
+function showToast(msg,emoji){
+ const c=document.getElementById('toastContainer');
+ if(!c) return;
+ const el=document.createElement('div');
+ el.className='toast';
+ el.innerHTML=(emoji||'🔔')+' '+msg;
+ c.appendChild(el);
+ setTimeout(()=>{ el.remove(); },3000);
+}
+
+function speak(text){
+ try{
+  if(!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.lang='bn-BD';
+  u.rate=0.95;
+  window.speechSynthesis.speak(u);
+ }catch(e){}
+}
+
+function getAudioCtx(){
+ try{
+  if(!window._audioCtx){ window._audioCtx=new (window.AudioContext||window.webkitAudioContext)(); }
+  if(window._audioCtx.state==='suspended') window._audioCtx.resume();
+  return window._audioCtx;
+ }catch(e){ return null; }
+}
+
+function playTone(freq,duration,type,delay,vol){
+ try{
+  let ctx=getAudioCtx();
+  if(!ctx) return;
+  let osc=ctx.createOscillator();
+  let gain=ctx.createGain();
+  osc.type=type||'sine';
+  osc.frequency.value=freq;
+  let startTime=ctx.currentTime+(delay||0);
+  let v=vol!=null?vol:0.15;
+  gain.gain.setValueAtTime(0.0001,startTime);
+  gain.gain.linearRampToValueAtTime(v,startTime+0.01);
+  gain.gain.exponentialRampToValueAtTime(0.0001,startTime+duration);
+  osc.connect(gain); gain.connect(ctx.destination);
+  osc.start(startTime);
+  osc.stop(startTime+duration+0.03);
+ }catch(e){}
+}
+
+function playLeaderSound(){ playTone(880,0.14,'triangle',0,0.15); playTone(1175,0.18,'triangle',0.12,0.15); }
+function playSweepSound(){ playTone(660,0.09,'square',0,0.16); playTone(880,0.09,'square',0.09,0.16); playTone(1320,0.2,'square',0.18,0.16); }
+function playWinnerSound(){ [523.25,659.25,783.99,1046.5].forEach((f,i)=>playTone(f,0.22,'triangle',i*0.15,0.18)); }
+function playTieSound(){ playTone(440,0.2,'sawtooth',0,0.12); playTone(415,0.22,'sawtooth',0.18,0.12); }
+function playWarnSound(){ playTone(220,0.28,'square',0,0.15); }
+
+function showWarningPopup(need,sum){
+ let diff=sum-need;
+ let diffLine = diff>0
+   ? ('❌ <b>'+diff+'</b> পয়েন্ট বেশি হয়ে গেছে')
+   : diff<0
+     ? ('❌ <b>'+Math.abs(diff)+'</b> পয়েন্ট কম হয়ে গেছে')
+     : '';
+ document.getElementById('warnText').innerHTML =
+   'রাউন্ড টোটাল হতে হবে ঠিক <b>'+need+'</b> পয়েন্ট।<br>'+
+   'আপনি দিয়েছেন <b>'+sum+'</b> পয়েন্ট।<br>'+
+   diffLine+'<br>'+
+   'দয়া করে স্কোর ঠিক করুন।';
+ document.getElementById('warnModal').style.display='block';
+ playWarnSound();
+}
+
+function handleScoreKey(e,i){
+ if(e.key==='Enter'){
+  e.preventDefault();
+  if(i<totals.length-1){
+   let next=document.getElementById('s'+(i+1));
+   if(next){ next.focus(); if(next.select) next.select(); }
+  }else{
+   addRound();
+  }
+ }
+}
+
+function addRound(){
+ let need=totals.length*90,sum=0,r=[];
+ for(let i=0;i<totals.length;i++){let v=+(document.getElementById('s'+i).value||0);sum+=v;r.push(v);}
+ if(sum!==need){showWarningPopup(need,sum);return;}
+ if(editingRoundIndex!==null){
+   history[editingRoundIndex]=r;
+   editingRoundIndex=null;
+ }else{
+   history.push(r);
+   roundNo++;
+   let nonZero=r.filter(v=>v>0);
+   if(nonZero.length===1 && nonZero[0]===need){
+     let idx=r.indexOf(need);
+     showToast(names[idx]+' একাই পুরো '+need+' পয়েন্ট পেয়েছেন! 🔥','🔥');
+     playSweepSound();
+     speak(names[idx]+' একাই পুরো '+need+' পয়েন্ট পেয়ে গেছেন! অসাধারণ!');
+   }
+ }
+ // Recalculate totals from history
+ totals = new Array(totals.length).fill(0);
+ history.forEach(rr=>rr.forEach((v,i)=>totals[i]+=v));
+ for(let i=0;i<totals.length;i++){
+  document.getElementById('s'+i).value='';
+ }
+ document.getElementById('s0').focus();
+ save(); render();
+}
+
+function undo(){
+ for(let i=0;i<totals.length;i++){
+   let el=document.getElementById('s'+i);
+   if(el) el.value='';
+ }
+}
+
+
+let gameStart=Date.now();
+let editingLastRound=null;
+
+function editLastRound(){ return; }
+
+let pendingRestoreData=null;
+
+function doRestoreGame(){
+ let d=pendingRestoreData;
+ if(!d) return;
+ totals=d.totals||[]; names=d.names||[]; history=d.history||[];
+ roundNo=d.roundNo||0;
+ if(document.getElementById('target')&&d.target) setTargetValue(d.target);
+ let h='<div class="card"><b>Round Total: '+(totals.length*90)+'</b><br>';
+ h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:2px 10px;margin-top:6px">';
+ for(let i=0;i<totals.length;i++) h+=`<div class="player-entry"><span class="pname">${names[i]}</span><input type=number inputmode="numeric" pattern="[0-9]*" id=s${i} value="" onkeydown="handleScoreKey(event,${i})"></div>`;
+ h+='</div>';
+ h+='<div class="actionRow"><button title="Add Round" onclick="addRound()">➕</button><button title="Undo" onclick="undo()">↩️</button><button id="lockBtn" title="Round Lock" onclick="toggleRoundLock()">🔒</button><button title="Game Story" onclick="toggleGameStory()">📜</button><button title="History" onclick="toggleHistory()">📖</button></div><div id=board></div></div>';
+ app.innerHTML=h; render(); updateLockButton();
+ let m=document.getElementById('restoreConfirmModal');
+ if(m) m.style.display='none';
+ pendingRestoreData=null;
+}
+
+function declineRestore(){
+ localStorage.removeItem('hazari');
+ pendingRestoreData=null;
+ let m=document.getElementById('restoreConfirmModal');
+ if(m) m.style.display='none';
+}
+
+window.addEventListener('load',()=>{
+ try{
+  const d=JSON.parse(localStorage.hazari||'null');
+  if(!d) return;
+  pendingRestoreData=d;
+  let m=document.getElementById('restoreConfirmModal');
+  if(m) m.style.display='block';
+ }catch(e){}
+});
+
+
+
+function renamePlayers(){
+ for(let i=0;i<names.length;i++){
+   let n=prompt('Player '+(i+1)+' name:', names[i]);
+   if(n && n.trim()) names[i]=n.trim();
+ }
+ localStorage.setItem('hazariPresetPlayers',JSON.stringify(names));
+ save();
+ render();
+}
+
+
+
+function editRound(idx){
+ if(roundLocked){ showToast('রাউন্ড লক করা আছে, আগে আনলক করুন','🔒'); return; }
+ let r=history[idx];
+ if(!r) return;
+ editingRoundIndex=idx;
+ for(let i=0;i<totals.length;i++){
+   document.getElementById('s'+i).value=r[i];
+ }
+ historyVisible=false;
+ let m=document.getElementById('historyModal');
+ if(m) m.style.display='none';
+}
+
+let pendingDeleteIdx=null;
+
+function deleteRound(idx){
+ if(roundLocked){ showToast('রাউন্ড লক করা আছে, আগে আনলক করুন','🔒'); return; }
+ let r=history[idx];
+ if(!r) return;
+ pendingDeleteIdx=idx;
+ let txt=document.getElementById('deleteConfirmText');
+ if(txt) txt.textContent='Round '+(idx+1)+' ডিলিট করবেন?';
+ let m=document.getElementById('deleteConfirmModal');
+ if(m) m.style.display='block';
+}
+
+function closeDeleteConfirm(){
+ pendingDeleteIdx=null;
+ let m=document.getElementById('deleteConfirmModal');
+ if(m) m.style.display='none';
+}
+
+function confirmDeleteRound(){
+ let idx=pendingDeleteIdx;
+ if(idx==null) return;
+ let r=history[idx];
+ if(r){
+  for(let i=0;i<totals.length;i++) totals[i]-=r[i];
+  history.splice(idx,1);
+  roundNo=Math.max(0,roundNo-1);
+  save(); render();
+ }
+ pendingDeleteIdx=null;
+ let m=document.getElementById('deleteConfirmModal');
+ if(m) m.style.display='none';
+}
+
+
+let finalStoryCache=null, finalStoryCacheKey=null;
+
+function computeRunningTotals(){
+ let n=totals.length, cur=new Array(n).fill(0), running=[];
+ history.forEach(r=>{ cur=cur.map((v,i)=>v+(r[i]||0)); running.push([...cur]); });
+ return running;
+}
+
+function generateFinalMatchStory(winnerIdx){
+ let key=history.length+'-'+winnerIdx+'-'+totals.join(',');
+ if(finalStoryCache && finalStoryCacheKey===key) return finalStoryCache;
+ if(!history.length){ return '<i>যথেষ্ট রাউন্ড খেলা হয়নি গল্প তৈরির জন্য।</i>'; }
+
+ let running=computeRunningTotals();
+ let leaders=running.map(r=>{ let mx=Math.max(...r); return r.indexOf(mx); });
+ let leadChanges=0;
+ for(let i=1;i<leaders.length;i++){ if(leaders[i]!==leaders[i-1]) leadChanges++; }
+
+ let biggest={val:-Infinity,round:0,player:0};
+ history.forEach((r,ri)=>{ r.forEach((v,pi)=>{ if(v>biggest.val){ biggest={val:v,round:ri+1,player:pi}; } }); });
+
+ let closest=Infinity, closestRound=0;
+ running.forEach((r,ri)=>{
+  let sorted=[...r].sort((a,b)=>b-a);
+  let gap=sorted[0]-(sorted[1]||0);
+  if(gap<closest){ closest=gap; closestRound=ri+1; }
+ });
+
+ let earlyLeader=leaders[0];
+ let finalLeader=winnerIdx!=null?winnerIdx:leaders[leaders.length-1];
+ let comeback=finalLeader!==earlyLeader;
+ let elapsedMin=Math.max(1,Math.floor((Date.now()-gameStart)/60000));
+
+ let s='';
+ s+='🏁 '+names.length+' জন খেলোয়াড় নিয়ে খেলা শুরু হয়, লক্ষ্যমাত্রা ছিল '+(+target.value||1000)+' পয়েন্ট।<br>';
+ s+='🎮 মোট '+history.length+' রাউন্ড খেলা হয়েছে, সময় লেগেছে প্রায় '+elapsedMin+' মিনিট।<br><br>';
+
+ if(comeback){
+  s+='🔄 শুরুতে এগিয়ে ছিলেন '+(playerEmojis[earlyLeader+1]||'')+' <b>'+names[earlyLeader]+'</b>, কিন্তু শেষ পর্যন্ত দুর্দান্ত কামব্যাক করে জয় ছিনিয়ে নেন '+(playerEmojis[finalLeader+1]||'')+' <b>'+names[finalLeader]+'</b>!<br>';
+ }else{
+  s+='👑 '+(playerEmojis[finalLeader+1]||'')+' <b>'+names[finalLeader]+'</b> শুরু থেকেই লিডে ছিলেন এবং শেষ পর্যন্ত সেই লিড ধরে রেখে জয়ী হন!<br>';
+ }
+
+ if(leadChanges>0){
+  s+='⚡ পুরো খেলায় মোট '+leadChanges+' বার লিড বদল হয়েছে - জমজমাট এক লড়াই!<br>';
+ }else{
+  s+='📈 পুরো খেলায় একচেটিয়া আধিপত্য দেখিয়েছেন '+names[finalLeader]+'।<br>';
+ }
+
+ s+='💥 সেরা রাউন্ড পারফরম্যান্স: রাউন্ড '+biggest.round+'-এ একাই '+biggest.val+' পয়েন্ট করেন '+(playerEmojis[biggest.player+1]||'')+' <b>'+names[biggest.player]+'</b>!<br>';
+
+ if(history.length>1 && closest<=20){
+  s+='😰 রাউন্ড '+closestRound+'-এ ব্যবধান ছিল মাত্র '+closest+' পয়েন্ট - অত্যন্ত টানটান মুহূর্ত ছিল সেটা!<br>';
+ }
+
+ s+='<br>🏆 চূড়ান্ত বিজয়ী: <b>'+names[finalLeader]+'</b> — চূড়ান্ত স্কোর '+totals[finalLeader]+'!';
+
+ finalStoryCache=s; finalStoryCacheKey=key;
+ return s;
+}
+
+function ordinalBn(n){
+ const suf={1:'ম',2:'য়',3:'য়'};
+ return n+(suf[n]||'তম');
+}
+
+function buildSmartTimeline(){
+ let n=names.length;
+ let need=n*90;
+ if(!history.length){
+   return {html:'<i>এখনো কোনো রাউন্ড খেলা হয়নি।</i>',sweepCount:0,leaderRoundsCount:new Array(n).fill(0),biggestComeback:null,leaderChain:[],need};
+ }
+ let totalsRun=new Array(n).fill(0);
+ let currentLeader=null;
+ let sweepCount=0;
+ let milestone90=false;
+ let events=[];
+ let comebacks=[];
+ let leaderChain=[];
+ let leaderRoundsCount=new Array(n).fill(0);
+ let targetVal=+target.value||1000;
+
+ history.forEach((r,ri)=>{
+  let prevTotals=[...totalsRun];
+  totalsRun=totalsRun.map((v,i)=>v+(r[i]||0));
+
+  let prevRankOrder=[...Array(n).keys()].sort((a,b)=>prevTotals[b]-prevTotals[a]);
+  let newRankOrder=[...Array(n).keys()].sort((a,b)=>totalsRun[b]-totalsRun[a]);
+  let prevPos={}; prevRankOrder.forEach((p,idx)=>prevPos[p]=idx);
+
+  let roundEvents=[];
+
+  // 1. Sweep
+  let nonZero=r.filter(v=>v>0);
+  if(nonZero.length===1 && nonZero[0]===need){
+   let idx=r.indexOf(need);
+   sweepCount++;
+   let emoji=sweepCount===1?'🔥':'⚡';
+   let txt=sweepCount===1?(names[idx]+' প্রথম '+need+' মারে'):(names[idx]+' আবার '+need+' মারে');
+   roundEvents.push({emoji,txt});
+  }
+
+  // 2. Tie at top or leader change
+  let topScore=totalsRun[newRankOrder[0]];
+  let secondScore=n>1?totalsRun[newRankOrder[1]]:null;
+  if(n>1 && topScore===secondScore && topScore>0){
+   roundEvents.push({emoji:'⚔️',txt:names[newRankOrder[0]]+' ও '+names[newRankOrder[1]]+' সমান স্কোরে'});
+  }else{
+   let newLeaderIdx=newRankOrder[0];
+   if(currentLeader===null){
+    currentLeader=newLeaderIdx;
+    leaderChain.push({round:ri+1,player:newLeaderIdx});
+   }else if(newLeaderIdx!==currentLeader){
+    let prevPosOfNewLeader=prevPos[newLeaderIdx];
+    if(prevPosOfNewLeader>=2){
+     roundEvents.push({emoji:'🚀',txt:names[newLeaderIdx]+' '+ordinalBn(prevPosOfNewLeader+1)+' থেকে '+ordinalBn(1)+' স্থানে উঠে'});
+    }else{
+     roundEvents.push({emoji:'👑',txt:names[newLeaderIdx]+' নতুন Leader হয়'});
+    }
+    currentLeader=newLeaderIdx;
+    leaderChain.push({round:ri+1,player:newLeaderIdx});
+   }
+  }
+  if(currentLeader!==null) leaderRoundsCount[currentLeader]++;
+
+  // 3. Track rank-improvement candidates for "Biggest Comeback"
+  let newPos={}; newRankOrder.forEach((p,idx)=>newPos[p]=idx);
+  for(let p=0;p<n;p++){
+   let improve=prevPos[p]-newPos[p];
+   if(improve>0) comebacks.push({round:ri+1,player:p,improve});
+  }
+
+  // 4. 90% milestone
+  if(!milestone90 && topScore>=0.9*targetVal && topScore<targetVal){
+   milestone90=true;
+   roundEvents.push({emoji:'🏆',txt:names[newRankOrder[0]]+' Target-এর 90% ছোঁয়'});
+  }
+
+  // 5. Win
+  if(topScore>=targetVal){
+   roundEvents.push({emoji:'🎉',txt:names[newRankOrder[0]]+' ম্যাচ জিতে নেয়'});
+  }
+
+  roundEvents.forEach(ev=>events.push({round:ri+1,emoji:ev.emoji,txt:ev.txt}));
+ });
+
+ let biggestComeback=null;
+ comebacks.forEach(c=>{ if(!biggestComeback || c.improve>biggestComeback.improve) biggestComeback=c; });
+ if(biggestComeback && biggestComeback.improve>=2){
+  events.push({round:biggestComeback.round,emoji:'📈',txt:names[biggestComeback.player]+' Biggest Comeback করে'});
+ }
+
+ events.sort((a,b)=>a.round-b.round);
+
+ let html='';
+ events.forEach(ev=>{ html+='<div class="lr-row"><b>R'+ev.round+'</b> '+ev.emoji+' '+ev.txt+'</div>'; });
+ if(!html) html='<i>এখনো উল্লেখযোগ্য কোনো ঘটনা ঘটেনি।</i>';
+
+ return {html,sweepCount,leaderRoundsCount,biggestComeback,leaderChain,need};
+}
+
+function generateHighlightsHtml(smart){
+ if(!history.length) return '<i>কোনো ডেটা নেই।</i>';
+ let running=computeRunningTotals();
+ let biggest={val:-Infinity,round:0,player:0};
+ history.forEach((r,ri)=>{ r.forEach((v,pi)=>{ if(v>biggest.val){ biggest={val:v,round:ri+1,player:pi}; } }); });
+ let closest=Infinity, closestRound=0;
+ running.forEach((r,ri)=>{
+  let sorted=[...r].sort((a,b)=>b-a);
+  let gap=sorted[0]-(sorted[1]||0);
+  if(gap<closest){ closest=gap; closestRound=ri+1; }
+ });
+ let leaders=running.map(r=>{ let mx=Math.max(...r); return r.indexOf(mx); });
+ let leadChanges=0;
+ for(let i=1;i<leaders.length;i++){ if(leaders[i]!==leaders[i-1]) leadChanges++; }
+
+ let h='';
+ h+='💥 সর্বোচ্চ রাউন্ড স্কোর: R'+biggest.round+' - '+names[biggest.player]+' ('+biggest.val+' পয়েন্ট)<br>';
+ if(history.length>1) h+='😰 সবচেয়ে টানটান মুহূর্ত: R'+closestRound+' (ব্যবধান মাত্র '+closest+' পয়েন্ট)<br>';
+ h+='⚡ মোট লিড বদল: '+leadChanges+' বার<br>';
+ h+='🔥 মোট সুইপ ('+smart.need+' একাই): '+smart.sweepCount+' বার';
+ return h;
+}
+
+function generatePlayerTitlesHtml(smart){
+ let n=names.length;
+ if(!history.length) return '<i>এখনো টাইটেল দেওয়ার মতো যথেষ্ট ডেটা নেই।</i>';
+ let titles=[];
+
+ let winnerIdx=names.findIndex((_,i)=>totals[i]>=(+target.value||1000));
+ if(winnerIdx>=0) titles.push('🏆 চ্যাম্পিয়ন: <b>'+names[winnerIdx]+'</b>');
+
+ let sweepCountByPlayer=new Array(n).fill(0);
+ history.forEach(r=>{
+  let nz=r.filter(v=>v>0);
+  if(nz.length===1 && nz[0]===smart.need) sweepCountByPlayer[r.indexOf(smart.need)]++;
+ });
+ let maxSweep=Math.max(...sweepCountByPlayer);
+ if(maxSweep>0){
+  let idx=sweepCountByPlayer.indexOf(maxSweep);
+  titles.push('🔥 সুইপ কিং: <b>'+names[idx]+'</b> ('+maxSweep+' বার)');
+ }
+
+ let biggest={val:-Infinity,player:0};
+ history.forEach(r=>r.forEach((v,pi)=>{ if(v>biggest.val) biggest={val:v,player:pi}; }));
+ if(biggest.val>-Infinity) titles.push('💪 বিগ হিটার: <b>'+names[biggest.player]+'</b> (এক রাউন্ডে '+biggest.val+' পয়েন্ট)');
+
+ if(smart.biggestComeback) titles.push('📈 কামব্যাক কিং: <b>'+names[smart.biggestComeback.player]+'</b>');
+
+ let maxLead=Math.max(...smart.leaderRoundsCount);
+ if(maxLead>0){
+  let idx=smart.leaderRoundsCount.indexOf(maxLead);
+  titles.push('🛡️ সবচেয়ে বেশি রাউন্ড লিডার: <b>'+names[idx]+'</b> ('+maxLead+' রাউন্ড)');
+ }
+
+ if(history.length>=3){
+  let stddevs=new Array(n).fill(0);
+  for(let p=0;p<n;p++){
+   let vals=history.map(r=>r[p]||0);
+   let mean=vals.reduce((a,b)=>a+b,0)/vals.length;
+   let variance=vals.reduce((a,b)=>a+(b-mean)*(b-mean),0)/vals.length;
+   stddevs[p]=Math.sqrt(variance);
+  }
+  let minStd=Math.min(...stddevs);
+  let idx=stddevs.indexOf(minStd);
+  titles.push('🎯 সবচেয়ে ধারাবাহিক: <b>'+names[idx]+'</b>');
+ }
+
+ return titles.length?titles.join('<br>'):'<i>এখনো কোনো টাইটেল নির্ধারিত হয়নি।</i>';
+}
+
+function generateAutoStorySummary(smart){
+ if(!history.length) return '<i>এখনো যথেষ্ট ডেটা নেই।</i>';
+ let bullets=[];
+ if(smart.leaderChain.length){
+  bullets.push(names[smart.leaderChain[0].player]+' শুরুতে লিড নেয়।');
+  if(smart.leaderChain.length>1){
+   let last=smart.leaderChain[smart.leaderChain.length-1];
+   bullets.push('মাঝপথে '+names[last.player]+' নেতৃত্ব দখল করে।');
+  }
+ }
+ if(smart.biggestComeback){
+  bullets.push('Round '+smart.biggestComeback.round+'-এ '+names[smart.biggestComeback.player]+' দুর্দান্ত comeback করে।');
+ }
+ let winnerIdx=names.findIndex((_,i)=>totals[i]>=(+target.value||1000));
+ if(winnerIdx>=0){
+  bullets.push('শেষ পর্যন্ত '+names[winnerIdx]+' ম্যাচ জিতে নেয়।');
+ }else if(smart.leaderChain.length){
+  bullets.push('বর্তমানে এগিয়ে আছেন '+names[smart.leaderChain[smart.leaderChain.length-1].player]+'।');
+ }
+ return bullets.map(b=>'<div style="margin:7px 0">• '+b+'</div>').join('');
+}
+
+function render(){
+ let rank=names.map((n,i)=>({n,s:totals[i]})).sort((a,b)=>b.s-a.s);
+ let leader=Math.max(...totals,0);
+let percent=Math.min(100, Math.round((leader/(+target.value||1))*100));
+let elapsed=Math.floor((Date.now()-gameStart)/1000);
+let m=Math.floor(elapsed/60), s=elapsed%60;
+let highest=Math.max(...totals,0);
+let lowest=totals.length?Math.min(...totals):0;
+let avg=totals.length?(totals.reduce((a,b)=>a+b,0)/totals.length).toFixed(1):0;
+let leaderAdv=rank.length>1?(rank[0].s-rank[1].s):0;
+let currentLeader=rank.length?rank[0].n:'-';
+if(history.length>0 && rank.length && currentLeader!==lastAnnouncedLeader){
+  lastAnnouncedLeader=currentLeader;
+  showToast(currentLeader+' এখন নতুন লিডার!','👑');
+  playLeaderSound();
+  speak(currentLeader+' এখন নতুন লিডার!');
+}
+let remaining=Math.max(0,(+target.value||1000)-leader);
+let h='<h3>📊 Statistics Dashboard</h3>'+
+'<div class="statsgrid">'+
+'<div class="statcard">⏱️<br>'+m+'m '+s+'s</div>'+
+'<div class="statcard">🎯<br>'+remaining+'</div>'+
+'<div class="statcard">👑<br>'+currentLeader+'</div>'+
+'<div class="statcard">⚡<br>+'+leaderAdv+'</div>'+
+'<div class="statcard">📈<br>'+highest+'</div>'+
+'<div class="statcard">📉<br>'+lowest+'</div>'+
+'</div>'+
+'<p>Round: '+roundNo+' | Average: '+avg+' | Progress: '+percent+'%</p>'+
+'<progress value="'+percent+'" max="100" style="width:100%"></progress>';
+h+='<h3>📜 Last Round</h3>';
+let last=history.length?history[history.length-1]:null;
+if(last){
+ let needR=totals.length*90;
+ let maxV=Math.max(...last);
+ h+="<div class='card' style='padding:12px'>";
+ h+="<div style='display:flex;justify-content:space-between;align-items:center;margin-bottom:8px'><b>🎲 Round "+history.length+"</b><span style='font-size:12px;opacity:.7'>Total: "+needR+"</span></div>";
+ last.forEach((v,i)=>{
+  let isTop=v===maxV && v>0;
+  let pct=needR? Math.round((v/needR)*100):0;
+  let barW=v>0?Math.max(pct,4):0;
+  let barColor=isTop?'linear-gradient(90deg,#fbbf24,#f59e0b)':v>0?'linear-gradient(90deg,#38bdf8,#0ea5e9)':'#334155';
+  h+="<div style='margin:9px 0'>";
+  h+="<div style='display:flex;justify-content:space-between;align-items:center;font-size:13px;margin-bottom:3px'>";
+  h+="<span>"+(playerEmojis[i+1]||'😀')+" <b style='color:"+(playerColors[i+1]||'inherit')+"'>"+names[i]+"</b>"+(isTop?' 👑':'')+"</span>";
+  h+="<span style='font-weight:bold'>+"+v+"</span>";
+  h+="</div>";
+  h+="<div style='background:#1e293b;border-radius:6px;height:10px;overflow:hidden'><div style='width:"+barW+"%;height:100%;background:"+barColor+";border-radius:6px'></div></div>";
+  h+="</div>";
+ });
+ h+="</div>";
+}else{h+="<div class='card'>No rounds yet</div>";}
+
+ let maxScore = totals.length? Math.max(...totals) : 0;
+ let targetVal = +target.value||0;
+ let topIdxs = totals.map((v,i)=>i).filter(i=>totals[i]===maxScore);
+ let winner=-1, isTie=false;
+ if(maxScore>0 && maxScore>=targetVal){
+   if(topIdxs.length===1){ winner=topIdxs[0]; }
+   else{ isTie=true; }
+ }
+renderGameStoryModal();
+h+='<h3>🥇 Ranking</h3>';
+{
+ let running=computeRunningTotals();
+ let prevTotals = running.length>=2 ? running[running.length-2] : new Array(totals.length).fill(0);
+ let prevRankOrder = totals.map((_,i)=>i).sort((a,b)=>prevTotals[b]-prevTotals[a]);
+ let prevPos={}; prevRankOrder.forEach((idx,pos)=>prevPos[idx]=pos);
+
+ function trendOf(pIdx,i){
+   let label='–', color='#9ca3af';
+   if(history.length>=2){
+     let diff=prevPos[pIdx]-i;
+     if(i===0 && prevPos[pIdx]!==0){ label='New Leader'; color='#fbbf24'; }
+     else if(diff>0){ label='▲ '+diff+' Up'; color='#22c55e'; }
+     else if(diff<0){ label='▼ '+Math.abs(diff)+' Down'; color='#ef4444'; }
+   }
+   return {label,color};
+ }
+
+ let top3=rank.slice(0,3), rest=rank.slice(3);
+
+ if(top3.length){
+  let order=top3.length>=2?[1,0,2]:[0]; // left:2nd, center:1st, right:3rd
+  let heights=['100px','72px','52px'];
+  let medals=['🥇','🥈','🥉'];
+  h+='<div style="display:flex;align-items:flex-end;justify-content:center;gap:8px;margin:10px 0">';
+  order.forEach((oi,slot)=>{
+   let p=top3[oi];
+   if(!p){ h+='<div style="flex:1"></div>'; return; }
+   let pIdx=names.indexOf(p.n);
+   let tr=trendOf(pIdx,oi);
+   let barColor = oi===0?'linear-gradient(180deg,#fbbf24,#b45309)':oi===1?'linear-gradient(180deg,#cbd5e1,#64748b)':'linear-gradient(180deg,#f0b28c,#9a5b32)';
+   h+='<div style="flex:1;text-align:center">';
+   h+='<span class="avatar" style="width:40px;height:40px;font-size:16px;margin:0 auto 4px;display:flex">'+(playerEmojis[pIdx+1]||p.n[0]||'P')+'</span>';
+   h+='<div style="font-weight:bold;font-size:12px;color:'+(playerColors[pIdx+1]||'inherit')+';white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+p.n+'</div>';
+   h+='<div style="font-size:10px;opacity:.85;color:'+tr.color+';white-space:nowrap">'+p.s+' &middot; '+tr.label+'</div>';
+   h+='<div style="border-radius:10px 10px 0 0;background:'+barColor+';height:'+heights[oi]+';display:flex;align-items:flex-start;justify-content:center;padding-top:6px;font-size:18px;margin-top:6px">'+medals[oi]+'</div>';
+   h+='</div>';
+  });
+  h+='</div>';
+ }
+
+ if(rest.length){
+  h+='<div class="card" style="padding:4px 8px;margin-top:6px">';
+  rest.forEach((p,ri)=>{
+   let i=ri+3;
+   let pIdx=names.indexOf(p.n);
+   let tr=trendOf(pIdx,i);
+   let gap='-'+(rank[0].s-p.s);
+   let prog=Math.min(100, Math.round((p.s/((+target.value||1000)||1))*100));
+   h+='<div style="display:flex;align-items:center;gap:8px;padding:8px 4px;border-bottom:1px solid #263449">';
+   h+='<div style="width:26px;font-weight:bold;color:#9ca3af;text-align:center">#'+(i+1)+'</div>';
+   h+='<span class="avatar" style="width:28px;height:28px;font-size:12px">'+(playerEmojis[pIdx+1]||p.n[0]||'P')+'</span>';
+   h+='<div style="flex:1;min-width:0">';
+   h+='<div style="display:flex;justify-content:space-between;align-items:center">';
+   h+='<span style="font-weight:bold;color:'+(playerColors[pIdx+1]||'inherit')+'">'+p.n+'</span>';
+   h+='<span style="font-size:11px;font-weight:bold;color:'+tr.color+';white-space:nowrap">'+tr.label+'</span>';
+   h+='</div>';
+   h+='<div style="display:flex;justify-content:space-between;font-size:11px;opacity:.8"><span>'+p.s+' pts</span><span>'+gap+'</span></div>';
+   h+='<progress value="'+prog+'" max="100" style="width:100%;height:6px;margin-top:2px"></progress>';
+   h+='</div></div>';
+  });
+  h+='</div>';
+ }
+}
+renderHistoryModal();
+renderTieCard(isTie, topIdxs, maxScore);
+if(winner>=0){
+ if(!winnerShown){
+   winnerShown=true;
+   showToast(names[winner]+' জয়ী হয়েছেন! 🏆','🎉');
+   playWinnerSound();
+   speak(names[winner]+' খেলায় জয়ী হয়েছেন! অভিনন্দন!');
+   setTimeout(()=>{
+      const m=document.getElementById('winnerModal');
+      document.getElementById('winnerText').innerHTML='<b>'+names[winner]+'</b><br>Score: '+totals[winner]+'<br>Target: '+target.value+'<hr style="margin:10px 0"><div style="text-align:left;font-size:14px">'+generateFinalMatchStory(winner)+'</div>';
+      m.style.display='block';
+   },100);
+ }
+}
+ document.getElementById('board').innerHTML=h;
+}
+
+setInterval(()=>{ try{ render(); }catch(e){} },1000);
+</script>
+
+
+
+
+<div id="toastContainer" class="toast-container"></div>
+
+<div id="winnerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.7);z-index:9999" onclick="if(event.target===this) this.style.display='none'">
+<div style="background:white;color:black;max-width:360px;margin:8vh auto;padding:20px;border-radius:16px;text-align:center;position:relative;max-height:82vh;overflow-y:auto">
+<button onclick="document.getElementById('winnerModal').style.display='none'" style="position:absolute;top:8px;right:10px;background:none;color:#111827;font-size:20px;font-weight:bold;padding:2px 8px;border-radius:50%;line-height:1">✕</button>
+<h2>🏆 Winner</h2>
+<div id="winnerText"></div><br>
+<button onclick="document.getElementById('winnerModal').style.display='none'">✅ বন্ধ করুন</button>
+</div></div>
+
+<div id="warnModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:9999" onclick="if(event.target===this) this.style.display='none'">
+<div style="background:#fff7ed;color:#111827;max-width:340px;margin:22vh auto;padding:22px;border-radius:16px;text-align:center;position:relative;border:2px solid #f59e0b;box-shadow:0 10px 30px rgba(0,0,0,.35)">
+<button onclick="document.getElementById('warnModal').style.display='none'" style="position:absolute;top:6px;right:10px;background:none;color:#111827;font-size:20px;font-weight:bold;padding:2px 8px;border-radius:50%;line-height:1">✕</button>
+<div style="font-size:38px;line-height:1">⚠️</div>
+<h3 style="margin:8px 0;color:#b45309">রাউন্ড টোটাল মিলছে না</h3>
+<div id="warnText" style="font-size:15px;margin:8px 0 4px"></div>
+<button onclick="document.getElementById('warnModal').style.display='none'" style="background:#f59e0b;margin-top:10px">ঠিক আছে</button>
+</div></div>
+
+<div id="gameStoryModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999" onclick="if(event.target===this){this.style.display='none';gameStoryVisible=false;}">
+<div style="background:#111827;color:#f3f4f6;max-width:420px;margin:6vh auto;padding:20px;border-radius:16px;position:relative;max-height:88vh;overflow-y:auto;box-shadow:0 10px 30px rgba(0,0,0,.5)">
+<button onclick="document.getElementById('gameStoryModal').style.display='none';gameStoryVisible=false;" style="position:absolute;top:8px;right:10px;background:none;color:#f3f4f6;font-size:22px;font-weight:bold;padding:2px 8px;border-radius:50%;line-height:1">✕</button>
+<h2 style="margin-top:0">📜 Game Story</h2>
+<div id="gameStoryBody" style="text-align:left;font-size:14px;line-height:1.6"></div>
+<button onclick="document.getElementById('gameStoryModal').style.display='none';gameStoryVisible=false;" style="background:#3b82f6;margin-top:14px;width:100%">✅ বন্ধ করুন</button>
+</div></div>
+
+<div id="historyModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999" onclick="if(event.target===this){this.style.display='none';historyVisible=false;}">
+<div style="background:#111827;color:#f3f4f6;max-width:420px;margin:6vh auto;padding:20px;border-radius:16px;position:relative;max-height:88vh;overflow-y:auto;box-shadow:0 10px 30px rgba(0,0,0,.5)">
+<button onclick="document.getElementById('historyModal').style.display='none';historyVisible=false;" style="position:absolute;top:8px;right:10px;background:none;color:#f3f4f6;font-size:22px;font-weight:bold;padding:2px 8px;border-radius:50%;line-height:1">✕</button>
+<h2 style="margin-top:0">📖 Round History</h2>
+<div id="historyBody" style="text-align:left;font-size:14px;line-height:1.6"></div>
+<button onclick="document.getElementById('historyModal').style.display='none';historyVisible=false;" style="background:#3b82f6;margin-top:14px;width:100%">✅ বন্ধ করুন</button>
+</div></div>
+
+<div id="tieModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:9999">
+<div style="background:#fff7ed;color:#111827;max-width:340px;margin:22vh auto;padding:22px;border-radius:16px;text-align:center;position:relative;border:2px solid #f59e0b;box-shadow:0 10px 30px rgba(0,0,0,.35)">
+<div style="font-size:38px;line-height:1">🤝</div>
+<h3 style="margin:8px 0;color:#b45309">টাই হয়েছে!</h3>
+<div id="tieNames" style="font-size:15px;margin:8px 0 4px"></div>
+<div style="margin-top:10px">খেলা চালিয়ে যেতে নতুন টার্গেট সেট করুন:</div>
+<input id="newTarget" type="number" style="width:120px;margin:10px 6px;text-align:center;padding:8px">
+<div><button onclick="extendTarget()" style="background:#f59e0b">🎯 নতুন টার্গেট সেট করুন</button></div>
+<div id="tieErr" style="color:#b91c1c;font-size:13px;margin-top:6px"></div>
+</div></div>
+
+<div id="deleteConfirmModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10000">
+<div style="background:#1e293b;color:#f3f4f6;max-width:320px;margin:26vh auto;padding:22px;border-radius:16px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.5)">
+<div style="font-size:36px;line-height:1">🗑️</div>
+<h3 id="deleteConfirmText" style="margin:10px 0">এই রাউন্ডটা ডিলিট করবেন?</h3>
+<div style="display:flex;gap:8px;margin-top:12px">
+<button onclick="closeDeleteConfirm()" style="flex:1;background:#374151">❌ না</button>
+<button onclick="confirmDeleteRound()" style="flex:1;background:#ef4444">🗑️ হ্যাঁ, ডিলিট করুন</button>
+</div>
+</div></div>
+
+<div id="restoreConfirmModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.75);z-index:10000">
+<div style="background:#1e293b;color:#f3f4f6;max-width:320px;margin:26vh auto;padding:22px;border-radius:16px;text-align:center;box-shadow:0 10px 30px rgba(0,0,0,.5)">
+<div style="font-size:36px;line-height:1">♻️</div>
+<h3 style="margin:10px 0">আগের খেলা ফিরিয়ে আনবেন?</h3>
+<div style="display:flex;gap:8px;margin-top:12px">
+<button onclick="declineRestore()" style="flex:1;background:#374151">❌ না, নতুন খেলা</button>
+<button onclick="doRestoreGame()" style="flex:1;background:#3b82f6">♻️ হ্যাঁ, ফিরিয়ে আনুন</button>
+</div>
+</div></div>
+
+
+<!-- 25.0 Placeholder Upgrade -->
+<script>
+const defaultNames=['রনি','বক্কর','হাসান','স্বাধীন','তারেক','পারভেজ','মুসা','তুহিন'];
+const avatarOptions25=['😀','😎','🦁','🐯','🦅','👑','⚡','🔥'];
+const colorOptions25=['Blue','Red','Green','Purple','Orange','Pink','Teal','Gold'];
+</script>
+
+
+<!-- 25.1 Player Setup Upgrade -->
+<script>
+window.defaultNames25_1=['রনি','বক্কর','হাসান','স্বাধীন','তারেক','পারভেজ','মুসা','তুহিন'];
+window.avatarOptions25_1=['😀','😎','🦁','🐯','🦅','👑','⚡','🔥'];
+window.colorOptions25_1=['Blue','Red','Green','Purple','Orange','Pink','Teal','Gold'];
+
+/*
+25.1 Notes:
+- Custom Name option
+- 8 default names
+- 8 avatars
+- 8 colors
+- Ready for unique-selection system
+*/
+</script>
+
+
+<!-- 25.2 Upgrade Notes -->
+<script>
+window.playerSetupVersion = "25.2";
+
+window.defaultNames25_2 = [
+ 'রনি','বক্কর','হাসান','স্বাধীন',
+ 'তারেক','পারভেজ','মুসা','তুহিন'
+];
+
+window.avatarOptions25_2 = ['😀','😎','🦁','🐯','🦅','👑','⚡','🔥'];
+window.colorOptions25_2 = ['Blue','Red','Green','Purple','Orange','Pink','Teal','Gold'];
+
+// Reserved for unique name/avatar/color selection logic
+window.uniqueSelectionEnabled = true;
+</script>
+
+
+<!-- 26.0 Roadmap Layer -->
+<script>
+window.playerSetupVersion = "27.0";
+
+window.features26 = {
+  customName: true,
+  defaultNames: true,
+  avatarSystem: true,
+  colorSystem: true,
+  uniqueSelectionPlanned: true,
+  historyButtonOnly: true,
+  lastRoundCard: true
+};
+</script>
+
+
+<script>
+const NAME_OPTIONS=['রনি','বক্কর','হাসান','স্বাধীন','তারেক','পারভেজ','মুসা','তুহিন'];
+const AVATAR_OPTIONS=['😀','😎','🦁','🐯','🦅','👑','⚡','🔥'];
+const COLOR_OPTIONS=['Blue','Red','Green','Purple','Orange','Pink','Teal','Gold'];
+
+function refreshUniqueSelectors(){
+  const names=[...document.querySelectorAll('select.nameSel')];
+  names.forEach((s,i)=>{
+    const current=s.value;
+    const used=names.map(x=>x.value).filter(v=>v && v!==current);
+    [...s.options].forEach(o=>{
+      if(o.value==='' ) return;
+      o.hidden=used.includes(o.value);
+    });
+  });
+}
+document.addEventListener('change',e=>{
+ if(e.target.classList.contains('nameSel')) refreshUniqueSelectors();
+});
+</script>
+
+</body></html>
+
+<script>
+function toggleHistory(){
+historyVisible=!historyVisible;
+let m=document.getElementById('historyModal');
+if(m) m.style.display=historyVisible?'block':'none';
+render();
+}
+
+function renderHistoryModal(){
+ let m=document.getElementById('historyModal');
+ if(!m) return;
+ if(!historyVisible){ m.style.display='none'; return; }
+ let body='';
+ if(!history.length){
+  body='<i>এখনো কোনো রাউন্ড খেলা হয়নি।</i>';
+ }else{
+  body+='<ol style="padding-left:20px;margin:0">';
+  history.forEach((x,idx)=>{
+   body+='<li style="margin-bottom:10px">Round '+(idx+1)+' : '+x.join(' | ')+'<br><button onclick="editRound('+idx+')">✏️ Edit</button> <button onclick="deleteRound('+idx+')">🗑️ Delete</button></li>';
+  });
+  body+='</ol>';
+ }
+ document.getElementById('historyBody').innerHTML=body;
+ m.style.display='block';
+}
+
+function renderTieCard(isTie, topIdxs, maxScore){
+ let m=document.getElementById('tieModal');
+ if(!m) return;
+ if(!isTie){
+   m.style.display='none';
+   tieAnnounced=false;
+   return;
+ }
+ let namesTxt=topIdxs.map(i=>names[i]).join(' ও ');
+ document.getElementById('tieNames').innerHTML=namesTxt+' উভয়ে <b>'+maxScore+'</b> পয়েন্টে সমান।';
+ if(!tieAnnounced){
+   tieAnnounced=true;
+   let inp=document.getElementById('newTarget');
+   if(inp) inp.value=maxScore+200;
+   let errEl=document.getElementById('tieErr');
+   if(errEl) errEl.textContent='';
+   showToast(namesTxt+' টাই হয়েছে! নতুন টার্গেট দরকার','🤝');
+   playTieSound();
+   speak(namesTxt+' সমান পয়েন্টে টাই হয়েছে। নতুন টার্গেট সেট করুন।');
+ }
+ m.style.display='block';
+}
+</script>
+
+<!-- 26.9 Fix Pack -->
+<script>
+window.features269={
+ defaultAvatarMode:true,
+ iconButtons:true,
+ lastRoundAboveRanking:true
+};
+</script>
+
+<script>
+function toggleGameStory(){
+ gameStoryVisible=!gameStoryVisible;
+ let m=document.getElementById('gameStoryModal');
+ if(m) m.style.display=gameStoryVisible?'block':'none';
+ render();
+}
+
+function renderGameStoryModal(){
+ let m=document.getElementById('gameStoryModal');
+ if(!m) return;
+ if(!gameStoryVisible){ m.style.display='none'; return; }
+ let smart=buildSmartTimeline();
+ let rankArr=names.map((n,i)=>({n,s:totals[i]})).sort((a,b)=>b.s-a.s);
+ let leaderName=rankArr.length?rankArr[0].n:'-';
+ let body='';
+ body+='<b>🏆 Match Summary</b><br>';
+ body+='Leader: '+leaderName+'<br>';
+ body+='Rounds: '+roundNo+'<br><br>';
+ body+='<b>⚡ Highlights</b><br>'+generateHighlightsHtml(smart)+'<br><br>';
+ body+='<b>📍 Timeline</b><br>'+smart.html+'<br><br>';
+ body+='<b>🎖️ Player Titles</b><br>'+generatePlayerTitlesHtml(smart)+'<br><br>';
+ body+='<b>🏁 Final Story</b><br>'+generateAutoStorySummary(smart);
+ document.getElementById('gameStoryBody').innerHTML=body;
+ m.style.display='block';
+}
+</script>
