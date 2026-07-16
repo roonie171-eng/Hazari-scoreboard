@@ -1,0 +1,20 @@
+{
+  "name": "Hazari Scoreboard",
+  "short_name": "Hazari",
+  "display": "standalone",
+  "start_url": "./Hazari_Scoreboard_28_FinalStory.html",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
