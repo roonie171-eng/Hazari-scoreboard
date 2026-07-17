@@ -219,14 +219,6 @@ let totals=[],names=[],history=[],roundNo=0; let winnerShown=false; let editingR
 let presetPlayers=JSON.parse(localStorage.getItem('hazariPresetPlayers')||'["রনি","বক্কর","হাসান","স্বাধীন","তারেক","পারভেজ","মুসা","তুহিন"]');
 
 
-document.addEventListener('change',function(e){
- if(e.target.id && e.target.id.startsWith('n')){
-   let i=e.target.id.substring(1);
-   let c=document.getElementById('c'+i);
-   if(c) c.style.display = e.target.value==='' ? 'inline-block':'none';
- }
-});
-
 function save(){localStorage.hazari=JSON.stringify({totals,names,history,roundNo,target:target.value});}
 
 function setup(){
@@ -238,12 +230,13 @@ for(let i=0;i<n;i++){
  let colorList=['Blue','Red','Green','Purple','Orange','Pink','Teal','Gold','Brown','Black'];
  let defColor=colorList[i%colorList.length];
  h+=`<div style="margin:8px 0">`;
- h+=`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select class="nameSel" id="n${i}" style="font-size:12px;max-width:90px;flex:0 0 auto">
+ h+=`<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap"><select class="nameSel" id="n${i}" onchange="handleNameSelect(${i})" style="font-size:12px;max-width:90px;flex:0 0 auto">
  <option value="">✏️ Custom Name...</option>
  <option>রনি</option><option>বক্কর</option><option>হাসান</option>
  <option>স্বাধীন</option><option>তারেক</option><option>পারভেজ</option>
  <option>মুসা</option><option>তুহিন</option>
- </select> <select id="a${i}" style="font-size:12px;flex:0 0 auto">${DEFAULT_EMOJIS.map((e,x)=>`<option ${x===i?'selected':''}>${e}</option>`).join('')}</select> <span onclick="toggleColorPicker(${i})" style="display:inline-flex;align-items:center;gap:5px;background:#fff;color:#111827;border-radius:8px;padding:6px 8px;font-size:12px;cursor:pointer;flex:0 0 auto"><span id="clPreview${i}" style="width:16px;height:16px;border-radius:50%;background:${colorHex(defColor)};display:inline-block"></span>Color ▾</span> <input id="c${i}" placeholder="Custom" style="display:none;max-width:90px"></div>`;
+ </select> <select id="a${i}" style="font-size:12px;flex:0 0 auto">${DEFAULT_EMOJIS.map((e,x)=>`<option ${x===i?'selected':''}>${e}</option>`).join('')}</select> <span onclick="toggleColorPicker(${i})" style="display:inline-flex;align-items:center;gap:5px;background:#fff;color:#111827;border-radius:8px;padding:6px 8px;font-size:12px;cursor:pointer;flex:0 0 auto"><span id="clPreview${i}" style="width:16px;height:16px;border-radius:50%;background:${colorHex(defColor)};display:inline-block"></span>Color ▾</span></div>`;
+ h+=`<input id="c${i}" placeholder="✏️ এখানে প্লেয়ারের নাম লিখুন" style="display:block;width:100%;box-sizing:border-box;margin-top:6px;padding:9px;font-size:14px;border:2px solid #38bdf8">`;
  h+=`<input type="hidden" id="cl${i}" value="${defColor}">`;
  h+=`<div id="clPicker${i}" style="display:none;gap:6px;flex-wrap:wrap;margin-top:6px">${colorList.map(c=>`<span class="colorSwatch" data-player="${i}" data-color="${c}" onclick="selectColor(${i},'${c}')" style="width:22px;height:22px;border-radius:50%;background:${colorHex(c)};display:inline-block;cursor:pointer;border:2px solid ${c===defColor?'#fff':'transparent'}"></span>`).join('')}</div>`;
  h+=`</div>`;
@@ -1060,6 +1053,20 @@ window.features26 = {
 const NAME_OPTIONS=['রনি','বক্কর','হাসান','স্বাধীন','তারেক','পারভেজ','মুসা','তুহিন'];
 const AVATAR_OPTIONS=['😀','😎','🦁','🐯','🦅','👑','⚡','🔥'];
 const COLOR_OPTIONS=['Blue','Red','Green','Purple','Orange','Pink','Teal','Gold'];
+
+function handleNameSelect(i){
+ let sel=document.getElementById('n'+i);
+ let customInput=document.getElementById('c'+i);
+ if(!sel||!customInput) return;
+ if(sel.value===''){
+  customInput.style.display='block';
+  customInput.focus();
+ }else{
+  customInput.style.display='none';
+  customInput.value='';
+ }
+ refreshUniqueSelectors();
+}
 
 function refreshUniqueSelectors(){
   const names=[...document.querySelectorAll('select.nameSel')];
